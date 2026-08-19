@@ -58,13 +58,6 @@ See [`SETUP.md`](./SETUP.md) for full step-by-step instructions, including:
 | `workflow-b-query.json` | n8n export — on-demand query workflow |
 | `SETUP.md` | Full setup guide and credential instructions |
 
-## Design decisions
-
-- **Telegram over WhatsApp** — the original plan used a self-hosted WhatsApp bridge (WAHA); it was dropped after repeated session-pairing failures in favor of Telegram's native n8n node, which needs zero self-hosted infrastructure.
-- **Gemini over Groq** — Groq was the original LLM choice; migrated after Groq deprecated the free-tier model in use.
-- **Deterministic grouping, not LLM-decided** — "most recent entry per project" is computed in a Code node, not left to the LLM, to keep the digest logic predictable.
-- **No auto-logging** — log entries are added manually; this version intentionally does not build any ingestion pipeline.
-
 ## Status
 
 Both workflows are running in production (n8n Cloud), triggered on schedule and via live Telegram messages.
