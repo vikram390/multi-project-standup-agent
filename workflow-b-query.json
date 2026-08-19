@@ -1,0 +1,344 @@
+{
+  "name": "Workflow B – On-Demand Project Query",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ]
+      },
+      "id": "b1-telegram-trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "Telegram Bot"
+        }
+      },
+      "notes": "Listens for incoming Telegram messages to your bot."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse the incoming Telegram message for a project query.\nconst raw = $json.message?.text || '';\nconst msg = raw.trim();\nconst chatId = String($json.message?.chat?.id || '');\n\n// Match patterns like:\n//   \"where did I stop on <project>\"\n//   \"where am I on <project>\"\n//   \"status on <project>\"\n//   \"status of <project>\"\nconst patterns = [\n  /where\\s+(?:did\\s+I\\s+(?:stop|leave\\s+off)|am\\s+I)\\s+on\\s+(.+)/i,\n  /status\\s+(?:on|of|for)\\s+(.+)/i,\n  /(?:update|progress)\\s+(?:on|for)\\s+(.+)/i\n];\n\nlet project = null;\nfor (const re of patterns) {\n  const m = msg.match(re);\n  if (m) {\n    project = m[1].trim().replace(/[?!.]+$/, '').trim();\n    break;\n  }\n}\n\nreturn [{\n  json: {\n    project: project,\n    hasProject: !!project,\n    chatId: chatId,\n    rawMessage: msg\n  }\n}];"
+      },
+      "id": "b2-parse",
+      "name": "Parse Project Name",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        250,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-has-project",
+              "leftValue": "={{ $json.hasProject }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals",
+                "name": "filter.boolean.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b3-if",
+      "name": "Has Project?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        500,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Parse Project Name').item.json.chatId }}",
+        "text": "I couldn't figure out which project you mean. Try something like:\n\n• where did I stop on <project name>\n• status on <project name>",
+        "additionalFields": {}
+      },
+      "id": "b4-reply-no-project",
+      "name": "Reply – Ask for Project",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        750,
+        200
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "Telegram Bot"
+        }
+      },
+      "notes": "Fallback reply when no project name was parsed."
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "options": {}
+      },
+      "id": "b5-sheets",
+      "name": "Read Project Log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        750,
+        -100
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets OAuth2"
+        }
+      },
+      "notes": "After import: select the 'Project Log' spreadsheet and its sheet from the dropdowns."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Filter rows to the requested project (case-insensitive) and\n// format as chronological readable text for the LLM.\nconst projectName = $('Parse Project Name').item.json.project;\nconst rows = $input.all()\n  .map(i => i.json)\n  .filter(r => (r['Project'] || '').trim().toLowerCase() === projectName.toLowerCase())\n  .sort((a, b) => new Date(a['Date']) - new Date(b['Date']));\n\nif (rows.length === 0) {\n  return [{\n    json: {\n      empty: true,\n      chatId: $('Parse Project Name').item.json.chatId,\n      projectName\n    }\n  }];\n}\n\nlet text = `Full log history for project: ${projectName}\\n\\n`;\nfor (const r of rows) {\n  text += `[${r['Date']}]\\n`;\n  text += `  What I did: ${r['What I did'] || 'N/A'}\\n`;\n  text += `  Blocker / Next step: ${r['Blocker/Next step'] || 'N/A'}\\n`;\n  text += `  Status: ${r['Status'] || 'N/A'}\\n\\n`;\n}\n\nreturn [{\n  json: {\n    empty: false,\n    formattedText: text.trim(),\n    chatId: $('Parse Project Name').item.json.chatId,\n    projectName\n  }\n}];"
+      },
+      "id": "b6-filter-format",
+      "name": "Filter & Format History",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-not-empty",
+              "leftValue": "={{ $json.empty }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals",
+                "name": "filter.boolean.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b7-if-found",
+      "name": "Rows Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1250,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ `No log entries found for project \"${$json.projectName}\". Double-check the name in your Google Sheet.` }}",
+        "additionalFields": {}
+      },
+      "id": "b8-reply-not-found",
+      "name": "Reply – Project Not Found",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1500,
+        50
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ system_instruction: { parts: [{ text: 'You are reconstructing full context on one project for someone returning to it after a break. Given the full log history below, write a detailed but tight explanation (100-180 words): what\\'s been done overall, where things currently stand, what the last blocker or decision was, and the single next step. Be specific and reference actual details from the log — do not generalize or add advice not grounded in the log.' }] }, contents: [ { role: 'user', parts: [{ text: $json.formattedText }] } ] }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "b9-gemini",
+      "name": "Gemini LLM – Query",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1500,
+        -200
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Gemini API"
+        }
+      },
+      "notes": "Credential 'Gemini API': Header Auth with Name = 'x-goog-api-key', Value = '<YOUR_GEMINI_KEY>' (no 'Bearer' prefix). Same credential as Workflow A."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Filter & Format History').item.json.chatId }}",
+        "text": "={{ $json.candidates[0].content.parts[0].text }}",
+        "additionalFields": {}
+      },
+      "id": "b10-reply-answer",
+      "name": "Reply – LLM Answer",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1750,
+        -200
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "Telegram Bot"
+        }
+      },
+      "notes": "Text field reads Gemini's response shape (candidates[0].content.parts[0].text) — do NOT use the old choices[0].message.content path, which silently resolves to 'undefined'."
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Parse Project Name",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Project Name": {
+      "main": [
+        [
+          {
+            "node": "Has Project?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Project?": {
+      "main": [
+        [
+          {
+            "node": "Read Project Log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reply – Ask for Project",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Project Log": {
+      "main": [
+        [
+          {
+            "node": "Filter & Format History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter & Format History": {
+      "main": [
+        [
+          {
+            "node": "Rows Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rows Found?": {
+      "main": [
+        [
+          {
+            "node": "Gemini LLM – Query",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reply – Project Not Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini LLM – Query": {
+      "main": [
+        [
+          {
+            "node": "Reply – LLM Answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "pinData": {}
+}

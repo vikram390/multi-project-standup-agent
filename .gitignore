@@ -1,0 +1,48 @@
+# === Secrets & credentials — never commit these ===
+# n8n does NOT include credential values in exported workflow JSON by default,
+# but keep this here as a safety net in case of manual exports, .env files,
+# or credential backups that get dropped into this folder.
+.env
+.env.*
+*.env
+secrets/
+credentials/
+*credentials*.json
+*.key
+*.pem
+
+# API keys / tokens if ever pasted into scratch files
+groq-api-key*
+gemini-api-key*
+telegram-bot-token*
+*api-key*.txt
+*token*.txt
+
+# === n8n specific ===
+# Local n8n data if you ever run it via Docker in this repo folder
+.n8n/
+n8n_data/
+
+# Workflow exports that include credential IDs tied to YOUR n8n instance
+# (safe to keep sanitized/template versions, but raw "export as-is" files
+# can leak internal credential references — review before committing)
+*-with-credentials.json
+
+# === WAHA / Docker leftovers (from the abandoned WhatsApp approach) ===
+waha_data/
+docker-compose.override.yml
+
+# === OS / editor junk ===
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# === Logs ===
+*.log
+npm-debug.log*
+
+# === Node (only relevant if you add any local tooling later) ===
+node_modules/
